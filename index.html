@@ -1,0 +1,1446 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>공공데이터 갱신 관리 시스템</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- SheetJS (XLSX) CDN for Excel import/export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, sans-serif;
+            background-color: #f8fafc;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+    </style>
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col">
+
+    <!-- Header Navbar -->
+    <header class="bg-slate-900 text-white shadow-lg sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex items-center justify-between h-16">
+                <div class="flex items-center space-x-3">
+                    <div class="bg-blue-600 p-2 rounded-lg text-white">
+                        <i class="fa-solid fa-database text-xl"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-lg leading-tight">공공데이터 갱신 관리 시스템</h1>
+                        <p class="text-xs text-slate-400">Public Data Lifecycle & Alert Monitor</p>
+                    </div>
+                </div>
+
+                <!-- Navigation Tabs -->
+                <nav class="flex space-x-1 sm:space-x-2">
+                    <button id="tabBtnList" onclick="switchTab('list')" class="px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white flex items-center space-x-2 transition">
+                        <i class="fa-solid fa-list-check"></i>
+                        <span class="hidden sm:inline">데이터 목록</span>
+                    </button>
+                    <button id="tabBtnStats" onclick="switchTab('stats')" class="px-3 py-2 text-sm font-medium rounded-md text-slate-300 hover:bg-slate-800 hover:text-white flex items-center space-x-2 transition">
+                        <i class="fa-solid fa-chart-pie"></i>
+                        <span class="hidden sm:inline">통계/집계</span>
+                    </button>
+                    <button id="tabBtnAlerts" onclick="switchTab('alerts')" class="relative px-3 py-2 text-sm font-medium rounded-md text-slate-300 hover:bg-slate-800 hover:text-white flex items-center space-x-2 transition">
+                        <i class="fa-solid fa-bell"></i>
+                        <span class="hidden sm:inline">갱신 알람</span>
+                        <span id="alertBadgeCount" class="hidden absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold px-1.5 py-0.5 rounded-full animate-pulse">0</span>
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="flex-grow max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- Top Urgent Alert Banner (Dynamically shown if overdue/imminent data exists) -->
+        <div id="urgentAlertBanner" class="hidden bg-gradient-to-r from-red-500 via-amber-500 to-orange-500 rounded-xl p-0.5 shadow-md">
+            <div class="bg-white rounded-[10px] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div class="flex items-center space-x-3">
+                    <div class="flex-shrink-0 bg-red-100 text-red-600 p-3 rounded-full">
+                        <i class="fa-solid fa-triangle-exclamation text-xl animate-bounce"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-sm font-bold text-slate-900">갱신 관리 주의 필요!</h2>
+                        <p id="urgentAlertText" class="text-xs sm:text-sm text-slate-600">
+                            기한이 경과된 데이터 <span id="bannerOverdueCount" class="font-bold text-red-600">0</span>건, 10일 이내 임박 데이터 <span id="bannerImminentCount" class="font-bold text-amber-600">0</span>건이 있습니다.
+                        </p>
+                    </div>
+                </div>
+                <div class="flex items-center space-x-2 w-full sm:w-auto justify-end">
+                    <button onclick="filterByAlertStatus('overdue')" class="px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 transition">
+                        경과 데이터 보기
+                    </button>
+                    <button onclick="filterByAlertStatus('imminent')" class="px-3 py-1.5 text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200 rounded-lg hover:bg-amber-100 transition">
+                        10일 이내 임박 보기
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- KPI Metrics Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 sm:gap-4">
+            <!-- Card 1: Total -->
+            <div onclick="filterByAlertStatus('all')" class="cursor-pointer bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-blue-300 hover:shadow-md transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-slate-500">전체 데이터</span>
+                    <span class="p-1.5 bg-blue-50 text-blue-600 rounded-md"><i class="fa-solid fa-folder"></i></span>
+                </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span id="kpiTotalCount" class="text-2xl font-black text-slate-800">0</span>
+                    <span class="text-xs text-slate-400">건</span>
+                </div>
+            </div>
+
+            <!-- Card 2: Overdue (경과) -->
+            <div onclick="filterByAlertStatus('overdue')" class="cursor-pointer bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-red-300 hover:shadow-md transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-red-600">기한 경과 (D+)</span>
+                    <span class="p-1.5 bg-red-50 text-red-600 rounded-md"><i class="fa-solid fa-circle-exclamation"></i></span>
+                </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span id="kpiOverdueCount" class="text-2xl font-black text-red-600">0</span>
+                    <span class="text-xs text-red-400">건</span>
+                </div>
+            </div>
+
+            <!-- Card 3: Imminent (10일 이내) -->
+            <div onclick="filterByAlertStatus('imminent')" class="cursor-pointer bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-amber-300 hover:shadow-md transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-amber-600">10일 이내 임박</span>
+                    <span class="p-1.5 bg-amber-50 text-amber-600 rounded-md"><i class="fa-solid fa-clock"></i></span>
+                </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span id="kpiImminentCount" class="text-2xl font-black text-amber-600">0</span>
+                    <span class="text-xs text-amber-400">건</span>
+                </div>
+            </div>
+
+            <!-- Card 4: Normal (정상) -->
+            <div onclick="filterByAlertStatus('normal')" class="cursor-pointer bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-emerald-300 hover:shadow-md transition">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-emerald-600">정상 (여유)</span>
+                    <span class="p-1.5 bg-emerald-50 text-emerald-600 rounded-md"><i class="fa-solid fa-circle-check"></i></span>
+                </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span id="kpiNormalCount" class="text-2xl font-black text-emerald-600">0</span>
+                    <span class="text-xs text-emerald-400">건</span>
+                </div>
+            </div>
+
+            <!-- Card 5: Manual/Irregular or Disused -->
+            <div onclick="filterByAlertStatus('manual')" class="cursor-pointer bg-white p-4 rounded-xl shadow-sm border border-slate-200 hover:border-slate-300 hover:shadow-md transition col-span-2 md:col-span-1">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-medium text-slate-500">수시 / 미사용</span>
+                    <span class="p-1.5 bg-slate-100 text-slate-600 rounded-md"><i class="fa-solid fa-minus"></i></span>
+                </div>
+                <div class="mt-2 flex items-baseline justify-between">
+                    <span id="kpiManualCount" class="text-2xl font-black text-slate-700">0</span>
+                    <span class="text-xs text-slate-400">건</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 1: Data List View -->
+        <section id="viewList" class="space-y-4">
+            
+            <!-- Filters & Controls Toolbar -->
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+                <div class="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between">
+                    <!-- Search Input -->
+                    <div class="relative flex-1">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
+                        <input type="text" id="searchInput" placeholder="데이터명, 구분, 부서, 비고 검색..." oninput="applyFilters()"
+                            class="w-full pl-10 pr-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent">
+                    </div>
+
+                    <!-- Action Buttons -->
+                    <div class="flex items-center space-x-2 overflow-x-auto pb-1 md:pb-0">
+                        <button onclick="openModal('add')" class="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs sm:text-sm font-semibold flex items-center space-x-1.5 shadow-sm transition whitespace-nowrap">
+                            <i class="fa-solid fa-plus"></i>
+                            <span>데이터 신규 등록</span>
+                        </button>
+                        <button onclick="triggerExcelImport()" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs sm:text-sm font-semibold flex items-center space-x-1.5 shadow-sm transition whitespace-nowrap">
+                            <i class="fa-solid fa-file-excel"></i>
+                            <span>엑셀 가져오기</span>
+                        </button>
+                        <input type="file" id="excelFileInput" accept=".xlsx, .xls, .csv" class="hidden" onchange="importExcel(event)">
+                        <button onclick="exportToExcel()" class="px-3.5 py-2 bg-slate-700 hover:bg-slate-800 text-white rounded-lg text-xs sm:text-sm font-semibold flex items-center space-x-1.5 shadow-sm transition whitespace-nowrap">
+                            <i class="fa-solid fa-download"></i>
+                            <span>엑셀 다운로드</span>
+                        </button>
+                        <button id="btnDeleteSelected" onclick="deleteSelectedRecords()" disabled class="px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-lg text-xs font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed flex items-center space-x-1 whitespace-nowrap">
+                            <i class="fa-solid fa-trash-can"></i>
+                            <span>선택 삭제 (<span id="selectedCountText">0</span>)</span>
+                        </button>
+                        <button onclick="deleteAllData()" title="전체 데이터 일괄 삭제" class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-semibold transition flex items-center space-x-1 whitespace-nowrap">
+                            <i class="fa-solid fa-dumpster"></i>
+                            <span>전체 삭제</span>
+                        </button>
+                        <button onclick="resetDataToDefault()" title="초기 데이터 복원" class="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg text-xs font-semibold transition flex items-center space-x-1 whitespace-nowrap">
+                            <i class="fa-solid fa-rotate-right"></i>
+                            <span>샘플 복원</span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Multi Filter Dropdowns -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-100 text-xs">
+                    <div>
+                        <label class="block text-slate-500 font-medium mb-1">구분별 필터</label>
+                        <select id="filterCategory" onchange="applyFilters()" class="w-full border border-slate-300 rounded-md p-1.5 text-slate-700 bg-white focus:ring-1 focus:ring-blue-500">
+                            <option value="ALL">전체 구분</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-500 font-medium mb-1">담당부서 필터</label>
+                        <select id="filterDept" onchange="applyFilters()" class="w-full border border-slate-300 rounded-md p-1.5 text-slate-700 bg-white focus:ring-1 focus:ring-blue-500">
+                            <option value="ALL">전체 담당부서</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-500 font-medium mb-1">갱신주기 필터</label>
+                        <select id="filterCycle" onchange="applyFilters()" class="w-full border border-slate-300 rounded-md p-1.5 text-slate-700 bg-white focus:ring-1 focus:ring-blue-500">
+                            <option value="ALL">전체 갱신주기</option>
+                            <option value="연간">연간</option>
+                            <option value="반기">반기</option>
+                            <option value="분기">분기</option>
+                            <option value="월">월</option>
+                            <option value="수시">수시</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-slate-500 font-medium mb-1">갱신 상태/알람 필터</label>
+                        <select id="filterAlertStatus" onchange="applyFilters()" class="w-full border border-slate-300 rounded-md p-1.5 text-slate-700 bg-white focus:ring-1 focus:ring-blue-500">
+                            <option value="ALL">전체 상태</option>
+                            <option value="overdue">🔴 기한 경과</option>
+                            <option value="imminent">🟠 10일 이내 임박</option>
+                            <option value="normal">🟢 정상 (10일 초과)</option>
+                            <option value="manual">⚪ 수시/미사용</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Table Card -->
+            <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs text-slate-600">
+                    <div>
+                        총 <span id="filteredCountText" class="font-bold text-blue-600">0</span>건 검색됨
+                        <span id="todayDateText" class="ml-3 text-slate-400 font-medium">기준일: 2026-08-25</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <span>정렬:</span>
+                        <select id="sortBySelect" onchange="applyFilters()" class="bg-white border border-slate-300 rounded px-2 py-1 text-xs">
+                            <option value="nextDateAsc">차기갱신일 오름차순 (긴급순)</option>
+                            <option value="nextDateDesc">차기갱신일 내림차순</option>
+                            <option value="lastDateDesc">갱신일자 최신순</option>
+                            <option value="nameAsc">데이터명 가나다순</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-left border-collapse min-w-[900px]">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600 text-xs font-semibold uppercase tracking-wider border-b border-slate-200">
+                                <th class="py-3 px-3 w-10 text-center">
+                                    <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" class="rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer" title="전체 선택">
+                                </th>
+                                <th class="py-3 px-4 w-28">구분</th>
+                                <th class="py-3 px-4">데이터명</th>
+                                <th class="py-3 px-3 text-center w-20">사용여부</th>
+                                <th class="py-3 px-3 text-center w-28">갱신일자</th>
+                                <th class="py-3 px-3 text-center w-20">갱신주기</th>
+                                <th class="py-3 px-4 text-center w-36">차기갱신일 / 상태</th>
+                                <th class="py-3 px-4 w-32">담당부서</th>
+                                <th class="py-3 px-3 w-24">담당자</th>
+                                <th class="py-3 px-3 w-28">비고</th>
+                                <th class="py-3 px-3 text-center w-20">관리</th>
+                            </tr>
+                        </thead>
+                        <tbody id="dataTableBody" class="divide-y divide-slate-100 text-xs sm:text-sm">
+                            <!-- Dynamic Content Rendered Here -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Empty State Indicator -->
+                <div id="emptyDataState" class="hidden p-12 text-center">
+                    <div class="text-slate-300 mb-2"><i class="fa-solid fa-folder-open text-4xl"></i></div>
+                    <p class="text-slate-500 font-medium text-sm">조건에 일치하는 공공데이터가 없습니다.</p>
+                    <p class="text-slate-400 text-xs mt-1">검색어나 필터 조건을 변경해 보세요.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 2: Statistics & Analytics View -->
+        <section id="viewStats" class="hidden space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Category Breakdown Chart -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
+                        <span><i class="fa-solid fa-pie-chart text-blue-500 mr-2"></i>구분별 데이터 분포</span>
+                        <span class="text-xs text-slate-400 font-normal">표준데이터, 파일데이터, API 등</span>
+                    </h3>
+                    <div class="h-64 relative">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Renewal Status Breakdown Chart -->
+                <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                    <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center justify-between">
+                        <span><i class="fa-solid fa-gauge-high text-amber-500 mr-2"></i>갱신 기한 상태 분포</span>
+                        <span class="text-xs text-slate-400 font-normal">경과, 임박, 정상, 수시</span>
+                    </h3>
+                    <div class="h-64 relative">
+                        <canvas id="statusChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Department Aggregation Table -->
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <h3 class="text-sm font-bold text-slate-800 mb-4 flex items-center space-x-2">
+                    <i class="fa-solid fa-building text-slate-600"></i>
+                    <span>부서별 공공데이터 관리 및 갱신 현황 집계</span>
+                </h3>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-xs text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                                <th class="py-2.5 px-3">담당부서</th>
+                                <th class="py-2.5 px-3 text-center">보유 데이터 수</th>
+                                <th class="py-2.5 px-3 text-center">정상 관리</th>
+                                <th class="py-2.5 px-3 text-center text-amber-600">10일 이내 임박</th>
+                                <th class="py-2.5 px-3 text-center text-red-600">기한 경과</th>
+                                <th class="py-2.5 px-3 text-center">수시/미사용</th>
+                                <th class="py-2.5 px-3 text-center">조치 필요율</th>
+                            </tr>
+                        </thead>
+                        <tbody id="deptStatsTableBody" class="divide-y divide-slate-100">
+                            <!-- Rendered dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <!-- VIEW 3: Dedicated Alert Center -->
+        <section id="viewAlerts" class="hidden space-y-4">
+            <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900 flex items-center space-x-2">
+                            <i class="fa-solid fa-bell text-red-500"></i>
+                            <span>공공데이터 갱신 알람 센터</span>
+                        </h3>
+                        <p class="text-xs text-slate-500 mt-0.5">오늘 날짜 기준 차기갱신일이 **경과**하였거나 **10일 이내로 임박**한 데이터 목록입니다.</p>
+                    </div>
+                    <span id="alertTodayDisplay" class="text-xs font-semibold bg-slate-100 text-slate-600 px-3 py-1 rounded-full">
+                        오늘 날짜: -
+                    </span>
+                </div>
+
+                <div class="space-y-3" id="alertListContainer">
+                    <!-- Urgent Alert Cards Rendered Here -->
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Modal for Adding / Editing Public Data -->
+    <div id="dataModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg overflow-hidden transform transition-all">
+            <!-- Modal Header -->
+            <div class="bg-slate-900 text-white px-6 py-4 flex items-center justify-between">
+                <h3 id="modalTitle" class="text-base font-bold flex items-center space-x-2">
+                    <i class="fa-solid fa-pen-to-square text-blue-400"></i>
+                    <span>공공데이터 등록</span>
+                </h3>
+                <button onclick="closeModal()" class="text-slate-400 hover:text-white text-lg font-bold">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <!-- Modal Form Body -->
+            <form id="dataForm" onsubmit="handleFormSubmit(event)" class="p-6 space-y-4 text-xs sm:text-sm">
+                <input type="hidden" id="editDataId">
+
+                <!-- Data Category & Usage -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-slate-700 font-semibold mb-1">구분 <span class="text-red-500">*</span></label>
+                        <input type="text" id="modalCategory" list="categoryOptions" required placeholder="예: 표준데이터, 파일데이터, API"
+                            class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        <datalist id="categoryOptions">
+                            <option value="표준데이터"></option>
+                            <option value="파일데이터"></option>
+                            <option value="API"></option>
+                            <option value="경기도"></option>
+                            <option value="플랫폼"></option>
+                        </datalist>
+                    </div>
+                    <div>
+                        <label class="block text-slate-700 font-semibold mb-1">사용여부 <span class="text-red-500">*</span></label>
+                        <select id="modalUsage" required class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                            <option value="사용">사용</option>
+                            <option value="미사용">미사용</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Data Name -->
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">데이터명 <span class="text-red-500">*</span></label>
+                    <input type="text" id="modalName" required placeholder="예: 경기도_안양시_청소년수련시설"
+                        class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+
+                <!-- Update Date & Cycle -->
+                <div class="grid grid-cols-2 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                    <div>
+                        <label class="block text-slate-700 font-semibold mb-1">갱신일자 <span class="text-red-500">*</span></label>
+                        <input type="date" id="modalLastDate" required onchange="autoComputeNextDate()"
+                            class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-slate-700 font-semibold mb-1">갱신주기 <span class="text-red-500">*</span></label>
+                        <select id="modalCycle" required onchange="autoComputeNextDate()"
+                            class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none bg-white">
+                            <option value="연간">연간 (+1년)</option>
+                            <option value="반기">반기 (+6개월)</option>
+                            <option value="분기">분기 (+3개월)</option>
+                            <option value="월">월 (+1개월)</option>
+                            <option value="수시">수시 (자동계산 미적용)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Auto Computed Next Date Preview -->
+                <div class="bg-blue-50/70 p-3 rounded-lg border border-blue-200 text-xs flex items-center justify-between">
+                    <div>
+                        <span class="font-bold text-blue-900 block">자동 계산된 차기갱신일:</span>
+                        <span class="text-blue-700 text-xs">갱신일자와 갱신주기에 따라 자동 반영됩니다.</span>
+                    </div>
+                    <div id="modalNextDatePreview" class="text-sm font-black text-blue-700 px-3 py-1 bg-white rounded border border-blue-300">
+                        -
+                    </div>
+                </div>
+
+                <!-- Department & Person in Charge -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-slate-700 font-semibold mb-1">담당부서</label>
+                        <input type="text" id="modalDept" placeholder="예: 교육청소년과"
+                            class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-slate-700 font-semibold mb-1">담당자</label>
+                        <input type="text" id="modalManager" placeholder="담당자 성명 또는 연락처"
+                            class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                    </div>
+                </div>
+
+                <!-- Remarks -->
+                <div>
+                    <label class="block text-slate-700 font-semibold mb-1">비고</label>
+                    <input type="text" id="modalRemarks" placeholder="특이사항 또는 메모 (예: 24.7. 신규)"
+                        class="w-full border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                </div>
+
+                <!-- Modal Actions -->
+                <div class="pt-3 border-t border-slate-200 flex justify-end space-x-2">
+                    <button type="button" onclick="closeModal()" class="px-4 py-2 border border-slate-300 rounded-lg text-slate-600 font-semibold hover:bg-slate-100 transition">
+                        취소
+                    </button>
+                    <button type="submit" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold shadow-sm transition">
+                        저장하기
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Custom Confirmation Modal (Replaces browser confirm dialog) -->
+    <div id="confirmModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden transform transition-all text-center p-6 space-y-4">
+            <div id="confirmModalIcon" class="w-12 h-12 mx-auto rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xl">
+                <i class="fa-solid fa-triangle-exclamation"></i>
+            </div>
+            <div>
+                <h3 id="confirmModalTitle" class="text-base font-bold text-slate-900">확인</h3>
+                <p id="confirmModalMessage" class="text-xs sm:text-sm text-slate-500 mt-2 whitespace-pre-line"></p>
+            </div>
+            <div class="flex items-center justify-center space-x-2 pt-2">
+                <button type="button" onclick="closeConfirmModal()" class="w-1/2 py-2 border border-slate-300 rounded-lg text-slate-600 font-semibold text-xs sm:text-sm hover:bg-slate-100 transition">
+                    취소
+                </button>
+                <button type="button" id="confirmOkBtn" class="w-1/2 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-xs sm:text-sm shadow-sm transition">
+                    확인
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification Message Box -->
+    <div id="toast" class="hidden fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-3 text-xs sm:text-sm border border-slate-700 transition-all duration-300 transform translate-y-2">
+        <i id="toastIcon" class="fa-solid fa-circle-info text-blue-400 text-lg"></i>
+        <span id="toastMessage">안내 메시지 내용</span>
+    </div>
+
+    <script>
+        // Global State & Data Store
+        const STORAGE_KEY = 'public_data_renewal_records_v1';
+        
+        // Initial Dataset modeled directly from the user's provided Excel image
+        const DEFAULT_DATA = [
+            { id: "1", category: "표준데이터", name: "경기도_안양시_청소년수련시설", usage: "사용", lastDate: "2025-11-17", cycle: "연간", nextDate: "2026-11-17", dept: "교육청소년과", manager: "", remarks: "24.7. 신규" },
+            { id: "2", category: "표준데이터", name: "경기도_안양시_인테리어업체", usage: "사용", lastDate: "2025-11-21", cycle: "연간", nextDate: "2026-11-21", dept: "도로과", manager: "", remarks: "24.7. 신규" },
+            { id: "3", category: "파일데이터", name: "경기도 안양시_도로명주소 안내도", usage: "사용", lastDate: "2025-06-13", cycle: "수시", nextDate: "", dept: "도시계획과", manager: "", remarks: "25.6. 신규" },
+            { id: "4", category: "파일데이터", name: "경기도 안양시_알림톡 발송 내역", usage: "사용", lastDate: "2025-06-19", cycle: "수시", nextDate: "", dept: "홍보기획관", manager: "", remarks: "25.6. 신규" },
+            { id: "5", category: "API", name: "경기도 안양시_동별 전기자동차_현황", usage: "사용", lastDate: "2025-07-29", cycle: "수시", nextDate: "", dept: "빅데이터팀", manager: "", remarks: "" },
+            { id: "6", category: "API", name: "경기도 안양시_즉석판매제조가공업_현황", usage: "사용", lastDate: "2025-08-07", cycle: "수시", nextDate: "", dept: "위생정책과", manager: "", remarks: "" },
+            { id: "7", category: "경기도", name: "무인 민원발급 정보 현황(제공표준)", usage: "사용", lastDate: "2025-07-17", cycle: "반기", nextDate: "2026-01-17", dept: "AI정책과", manager: "", remarks: "" },
+            { id: "8", category: "경기도", name: "야영(캠핑)장 시설 현황", usage: "사용", lastDate: "2025-07-15", cycle: "연간", nextDate: "2026-07-15", dept: "AI정책과", manager: "", remarks: "" },
+            { id: "9", category: "플랫폼", name: "연령_별_인구_현황", usage: "사용", lastDate: "2026-08-04", cycle: "월", nextDate: "2026-09-04", dept: "AI정책과", manager: "", remarks: "내부/외부(인구)" },
+            { id: "10", category: "플랫폼", name: "주민등록_인구_기타_현황", usage: "사용", lastDate: "2026-08-04", cycle: "월", nextDate: "2026-09-04", dept: "AI정책과", manager: "", remarks: "내부" }
+        ];
+
+        let publicDataList = [];
+        let categoryChartInstance = null;
+        let statusChartInstance = null;
+
+        // Custom Confirm Modal Logic (Replaces browser confirm)
+        let pendingConfirmCallback = null;
+
+        function showConfirm(title, message, callback, isDanger = true) {
+            document.getElementById('confirmModalTitle').innerText = title;
+            document.getElementById('confirmModalMessage').innerText = message;
+            
+            const okBtn = document.getElementById('confirmOkBtn');
+            const iconContainer = document.getElementById('confirmModalIcon');
+
+            if (isDanger) {
+                okBtn.className = 'w-1/2 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg font-semibold text-xs sm:text-sm shadow-sm transition';
+                iconContainer.className = 'w-12 h-12 mx-auto rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xl';
+                iconContainer.innerHTML = '<i class="fa-solid fa-trash-can"></i>';
+            } else {
+                okBtn.className = 'w-1/2 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-xs sm:text-sm shadow-sm transition';
+                iconContainer.className = 'w-12 h-12 mx-auto rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl';
+                iconContainer.innerHTML = '<i class="fa-solid fa-rotate-right"></i>';
+            }
+
+            pendingConfirmCallback = callback;
+            document.getElementById('confirmModal').classList.remove('hidden');
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').classList.add('hidden');
+            pendingConfirmCallback = null;
+        }
+
+        document.getElementById('confirmOkBtn').onclick = function() {
+            if (typeof pendingConfirmCallback === 'function') {
+                pendingConfirmCallback();
+            }
+            closeConfirmModal();
+        };
+
+        // Utility: Get Today's Date in YYYY-MM-DD format (or relative system date)
+        function getTodayString() {
+            const today = new Date();
+            const year = today.getFullYear();
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+        }
+
+        // Auto-Calculate Next Update Date (차기갱신일 자동 부여)
+        function calculateNextUpdateDate(lastDateStr, cycle) {
+            if (!lastDateStr || cycle === '수시') {
+                return '';
+            }
+
+            const [year, month, day] = lastDateStr.split('-').map(Number);
+            if (!year || !month || !day) return '';
+
+            const date = new Date(year, month - 1, day);
+
+            switch (cycle) {
+                case '연간':
+                    date.setFullYear(date.getFullYear() + 1);
+                    break;
+                case '반기':
+                    date.setMonth(date.getMonth() + 6);
+                    break;
+                case '분기':
+                    date.setMonth(date.getMonth() + 3);
+                    break;
+                case '월':
+                    date.setMonth(date.getMonth() + 1);
+                    break;
+                case '주':
+                    date.setDate(date.getDate() + 7);
+                    break;
+                default:
+                    return '';
+            }
+
+            const resYear = date.getFullYear();
+            const resMonth = String(date.getMonth() + 1).padStart(2, '0');
+            const resDay = String(date.getDate()).padStart(2, '0');
+            return `${resYear}-${resMonth}-${resDay}`;
+        }
+
+        // Calculate D-Day difference between Next Update Date and Today
+        function getDDayInfo(nextDateStr, usageStr) {
+            if (usageStr === '미사용') {
+                return { status: 'manual', dDay: null, label: '미사용', colorClass: 'bg-slate-100 text-slate-500 border-slate-200' };
+            }
+            if (!nextDateStr) {
+                return { status: 'manual', dDay: null, label: '수시', colorClass: 'bg-slate-100 text-slate-600 border-slate-200' };
+            }
+
+            const todayStr = getTodayString();
+            const today = new Date(todayStr);
+            const nextDate = new Date(nextDateStr);
+
+            // Difference in days
+            const diffTime = nextDate - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays < 0) {
+                // Overdue
+                return {
+                    status: 'overdue',
+                    dDay: diffDays,
+                    label: `경과 (${Math.abs(diffDays)}일 지남)`,
+                    colorClass: 'bg-red-100 text-red-700 border-red-300 font-bold'
+                };
+            } else if (diffDays <= 10) {
+                // Imminent D-10
+                return {
+                    status: 'imminent',
+                    dDay: diffDays,
+                    label: diffDays === 0 ? 'D-Day (오늘)' : `D-${diffDays} (임박)`,
+                    colorClass: 'bg-amber-100 text-amber-800 border-amber-300 font-bold animate-pulse'
+                };
+            } else {
+                // Normal
+                return {
+                    status: 'normal',
+                    dDay: diffDays,
+                    label: `D-${diffDays} (정상)`,
+                    colorClass: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                };
+            }
+        }
+
+        // Load data from LocalStorage or initialize default
+        function initApp() {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                try {
+                    publicDataList = JSON.parse(saved);
+                } catch(e) {
+                    publicDataList = [...DEFAULT_DATA];
+                }
+            } else {
+                publicDataList = [...DEFAULT_DATA];
+                saveDataToStorage();
+            }
+
+            // Ensure all dates are freshly calculated
+            publicDataList.forEach(item => {
+                if (item.cycle !== '수시' && item.lastDate) {
+                    item.nextDate = calculateNextUpdateDate(item.lastDate, item.cycle);
+                }
+            });
+
+            document.getElementById('todayDateText').innerText = `기준일: ${getTodayString()}`;
+            document.getElementById('alertTodayDisplay').innerText = `기준일: ${getTodayString()}`;
+
+            populateDropdownFilters();
+            applyFilters();
+            renderStatsCharts();
+            renderAlertCenter();
+        }
+
+        function saveDataToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(publicDataList));
+        }
+
+        function resetDataToDefault() {
+            showConfirm(
+                '샘플 데이터 복원',
+                '초기 데이터(샘플 엑셀 데이터)로 복원하시겠습니까?\n현재 변경사항은 덮어씌워집니다.',
+                function() {
+                    publicDataList = JSON.parse(JSON.stringify(DEFAULT_DATA));
+                    saveDataToStorage();
+                    populateDropdownFilters();
+                    applyFilters();
+                    renderStatsCharts();
+                    renderAlertCenter();
+                    showToast('초기 데이터로 복원되었습니다.', 'success');
+                },
+                false
+            );
+        }
+
+        function populateDropdownFilters() {
+            const categories = Array.from(new Set(publicDataList.map(i => i.category).filter(Boolean)));
+            const depts = Array.from(new Set(publicDataList.map(i => i.dept).filter(Boolean)));
+
+            const catSelect = document.getElementById('filterCategory');
+            catSelect.innerHTML = '<option value="ALL">전체 구분</option>' + categories.map(c => `<option value="${c}">${c}</option>`).join('');
+
+            const deptSelect = document.getElementById('filterDept');
+            deptSelect.innerHTML = '<option value="ALL">전체 담당부서</option>' + depts.map(d => `<option value="${d}">${d}</option>`).join('');
+        }
+
+        function applyFilters() {
+            const query = document.getElementById('searchInput').value.trim().toLowerCase();
+            const selectedCat = document.getElementById('filterCategory').value;
+            const selectedDept = document.getElementById('filterDept').value;
+            const selectedCycle = document.getElementById('filterCycle').value;
+            const selectedStatus = document.getElementById('filterAlertStatus').value;
+            const sortBy = document.getElementById('sortBySelect').value;
+
+            let filtered = publicDataList.filter(item => {
+                // Search query match
+                const matchQuery = !query || 
+                    (item.name && item.name.toLowerCase().includes(query)) ||
+                    (item.category && item.category.toLowerCase().includes(query)) ||
+                    (item.dept && item.dept.toLowerCase().includes(query)) ||
+                    (item.remarks && item.remarks.toLowerCase().includes(query)) ||
+                    (item.manager && item.manager.toLowerCase().includes(query));
+
+                // Dropdown matches
+                const matchCat = selectedCat === 'ALL' || item.category === selectedCat;
+                const matchDept = selectedDept === 'ALL' || item.dept === selectedDept;
+                const matchCycle = selectedCycle === 'ALL' || item.cycle === selectedCycle;
+
+                // Status match
+                const dDayInfo = getDDayInfo(item.nextDate, item.usage);
+                const matchStatus = selectedStatus === 'ALL' || dDayInfo.status === selectedStatus;
+
+                return matchQuery && matchCat && matchDept && matchCycle && matchStatus;
+            });
+
+            // Sorting
+            filtered.sort((a, b) => {
+                if (sortBy === 'nextDateAsc') {
+                    if (!a.nextDate) return 1;
+                    if (!b.nextDate) return -1;
+                    return a.nextDate.localeCompare(b.nextDate);
+                } else if (sortBy === 'nextDateDesc') {
+                    if (!a.nextDate) return 1;
+                    if (!b.nextDate) return -1;
+                    return b.nextDate.localeCompare(a.nextDate);
+                } else if (sortBy === 'lastDateDesc') {
+                    return (b.lastDate || '').localeCompare(a.lastDate || '');
+                } else if (sortBy === 'nameAsc') {
+                    return (a.name || '').localeCompare(b.name || '');
+                }
+                return 0;
+            });
+
+            renderTable(filtered);
+            updateKPISummaries();
+        }
+
+        // Render Data Table
+        function renderTable(dataArray) {
+            const tbody = document.getElementById('dataTableBody');
+            const emptyState = document.getElementById('emptyDataState');
+            document.getElementById('filteredCountText').innerText = dataArray.length;
+
+            // Reset select all checkbox and selection count
+            const selectAll = document.getElementById('selectAllCheckbox');
+            if (selectAll) selectAll.checked = false;
+            updateSelectedCount();
+
+            if (dataArray.length === 0) {
+                tbody.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            } else {
+                emptyState.classList.add('hidden');
+            }
+
+            tbody.innerHTML = dataArray.map(item => {
+                const info = getDDayInfo(item.nextDate, item.usage);
+                const isUnused = item.usage === '미사용';
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition border-b border-slate-100 ${isUnused ? 'opacity-60 bg-slate-50/50' : ''}">
+                        <!-- 선택 체크박스 -->
+                        <td class="py-3 px-3 text-center">
+                            <input type="checkbox" value="${item.id}" onchange="updateSelectedCount()" class="row-checkbox rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                        </td>
+                        <!-- 구분 -->
+                        <td class="py-3 px-4 font-semibold text-slate-700">
+                            <span class="inline-block px-2 py-0.5 rounded text-xs bg-slate-100 text-slate-700 border border-slate-200">
+                                ${escapeHtml(item.category || '-')}
+                            </span>
+                        </td>
+                        <!-- 데이터명 -->
+                        <td class="py-3 px-4 font-bold text-slate-900">
+                            ${escapeHtml(item.name || '-')}
+                        </td>
+                        <!-- 사용여부 -->
+                        <td class="py-3 px-3 text-center">
+                            <span class="inline-block px-2 py-0.5 rounded text-xs font-semibold ${item.usage === '사용' ? 'bg-blue-50 text-blue-600' : 'bg-slate-200 text-slate-600'}">
+                                ${escapeHtml(item.usage || '사용')}
+                            </span>
+                        </td>
+                        <!-- 갱신일자 -->
+                        <td class="py-3 px-3 text-center text-slate-600 font-mono text-xs">
+                            ${item.lastDate || '-'}
+                        </td>
+                        <!-- 갱신주기 -->
+                        <td class="py-3 px-3 text-center font-medium text-slate-700">
+                            ${escapeHtml(item.cycle || '-')}
+                        </td>
+                        <!-- 차기갱신일 / 알람 상태 -->
+                        <td class="py-3 px-4 text-center">
+                            <div class="flex flex-col items-center justify-center space-y-1">
+                                <span class="font-mono text-xs font-bold text-slate-800">
+                                    ${item.nextDate ? item.nextDate : '-'}
+                                </span>
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${info.colorClass}">
+                                    ${info.label}
+                                </span>
+                            </div>
+                        </td>
+                        <!-- 담당부서 -->
+                        <td class="py-3 px-4 text-slate-700 font-medium">
+                            ${escapeHtml(item.dept || '-')}
+                        </td>
+                        <!-- 담당자 -->
+                        <td class="py-3 px-3 text-slate-600">
+                            ${escapeHtml(item.manager || '-')}
+                        </td>
+                        <!-- 비고 -->
+                        <td class="py-3 px-3 text-slate-500 text-xs">
+                            ${escapeHtml(item.remarks || '-')}
+                        </td>
+                        <!-- 관리 버튼 -->
+                        <td class="py-3 px-3 text-center space-x-1">
+                            <button onclick="openModal('edit', '${item.id}')" title="수정" class="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded transition">
+                                <i class="fa-solid fa-pen"></i>
+                            </button>
+                            <button onclick="deleteRecord('${item.id}')" title="삭제" class="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded transition">
+                                <i class="fa-solid fa-trash-can"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function updateKPISummaries() {
+            let total = publicDataList.length;
+            let overdue = 0;
+            let imminent = 0;
+            let normal = 0;
+            let manual = 0;
+
+            publicDataList.forEach(item => {
+                const info = getDDayInfo(item.nextDate, item.usage);
+                if (info.status === 'overdue') overdue++;
+                else if (info.status === 'imminent') imminent++;
+                else if (info.status === 'normal') normal++;
+                else manual++;
+            });
+
+            document.getElementById('kpiTotalCount').innerText = total;
+            document.getElementById('kpiOverdueCount').innerText = overdue;
+            document.getElementById('kpiImminentCount').innerText = imminent;
+            document.getElementById('kpiNormalCount').innerText = normal;
+            document.getElementById('kpiManualCount').innerText = manual;
+
+            // Header alert counter badge
+            const urgentTotal = overdue + imminent;
+            const alertBadge = document.getElementById('alertBadgeCount');
+            if (urgentTotal > 0) {
+                alertBadge.innerText = urgentTotal;
+                alertBadge.classList.remove('hidden');
+            } else {
+                alertBadge.classList.add('hidden');
+            }
+
+            // Top Urgent Banner
+            const urgentBanner = document.getElementById('urgentAlertBanner');
+            if (urgentTotal > 0) {
+                document.getElementById('bannerOverdueCount').innerText = overdue;
+                document.getElementById('bannerImminentCount').innerText = imminent;
+                urgentBanner.classList.remove('hidden');
+            } else {
+                urgentBanner.classList.add('hidden');
+            }
+        }
+
+        function filterByAlertStatus(statusType) {
+            switchTab('list');
+            document.getElementById('filterAlertStatus').value = statusType;
+            applyFilters();
+        }
+
+        function openModal(mode, id = null) {
+            const modal = document.getElementById('dataModal');
+            const form = document.getElementById('dataForm');
+            const title = document.getElementById('modalTitle');
+
+            form.reset();
+
+            if (mode === 'add') {
+                title.innerText = '공공데이터 신규 등록';
+                document.getElementById('editDataId').value = '';
+                document.getElementById('modalLastDate').value = getTodayString();
+                document.getElementById('modalCycle').value = '연간';
+                document.getElementById('modalUsage').value = '사용';
+                autoComputeNextDate();
+            } else if (mode === 'edit' && id) {
+                title.innerText = '공공데이터 정보 수정';
+                const item = publicDataList.find(i => i.id === id);
+                if (item) {
+                    document.getElementById('editDataId').value = item.id;
+                    document.getElementById('modalCategory').value = item.category || '';
+                    document.getElementById('modalName').value = item.name || '';
+                    document.getElementById('modalUsage').value = item.usage || '사용';
+                    document.getElementById('modalLastDate').value = item.lastDate || '';
+                    document.getElementById('modalCycle').value = item.cycle || '연간';
+                    document.getElementById('modalDept').value = item.dept || '';
+                    document.getElementById('modalManager').value = item.manager || '';
+                    document.getElementById('modalRemarks').value = item.remarks || '';
+                    autoComputeNextDate();
+                }
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('dataModal').classList.add('hidden');
+        }
+
+        function autoComputeNextDate() {
+            const lastDate = document.getElementById('modalLastDate').value;
+            const cycle = document.getElementById('modalCycle').value;
+            const preview = document.getElementById('modalNextDatePreview');
+
+            const calculated = calculateNextUpdateDate(lastDate, cycle);
+            if (calculated) {
+                preview.innerText = calculated;
+                preview.className = 'text-sm font-black text-blue-700 px-3 py-1 bg-white rounded border border-blue-300';
+            } else {
+                preview.innerText = '수시 / 자동계산 제외';
+                preview.className = 'text-xs font-semibold text-slate-500 px-3 py-1 bg-slate-100 rounded border border-slate-300';
+            }
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+            const editId = document.getElementById('editDataId').value;
+            const category = document.getElementById('modalCategory').value.trim();
+            const name = document.getElementById('modalName').value.trim();
+            const usage = document.getElementById('modalUsage').value;
+            const lastDate = document.getElementById('modalLastDate').value;
+            const cycle = document.getElementById('modalCycle').value;
+            const dept = document.getElementById('modalDept').value.trim();
+            const manager = document.getElementById('modalManager').value.trim();
+            const remarks = document.getElementById('modalRemarks').value.trim();
+
+            const calculatedNextDate = calculateNextUpdateDate(lastDate, cycle);
+
+            if (editId) {
+                // Update existing
+                const index = publicDataList.findIndex(i => i.id === editId);
+                if (index !== -1) {
+                    publicDataList[index] = {
+                        ...publicDataList[index],
+                        category, name, usage, lastDate, cycle, nextDate: calculatedNextDate, dept, manager, remarks
+                    };
+                    showToast('데이터가 성공적으로 수정되었습니다.', 'success');
+                }
+            } else {
+                // Insert new
+                const newItem = {
+                    id: String(Date.now()),
+                    category, name, usage, lastDate, cycle, nextDate: calculatedNextDate, dept, manager, remarks
+                };
+                publicDataList.unshift(newItem);
+                showToast('새 공공데이터가 추가되었습니다.', 'success');
+            }
+
+            saveDataToStorage();
+            closeModal();
+            populateDropdownFilters();
+            applyFilters();
+            renderStatsCharts();
+            renderAlertCenter();
+        }
+
+        function deleteRecord(id) {
+            const target = publicDataList.find(i => i.id === id);
+            if (!target) return;
+
+            showConfirm(
+                '데이터 삭제',
+                `'${target.name}' 데이터를 정말 삭제하시겠습니까?`,
+                function() {
+                    publicDataList = publicDataList.filter(i => i.id !== id);
+                    saveDataToStorage();
+                    populateDropdownFilters();
+                    applyFilters();
+                    renderStatsCharts();
+                    renderAlertCenter();
+                    showToast('데이터가 삭제되었습니다.', 'info');
+                },
+                true
+            );
+        }
+
+        // Checkbox Selection Logic
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.row-checkbox');
+            checkboxes.forEach(cb => {
+                cb.checked = master.checked;
+            });
+            updateSelectedCount();
+        }
+
+        function updateSelectedCount() {
+            const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+            const count = checkedBoxes.length;
+            const btnDeleteSelected = document.getElementById('btnDeleteSelected');
+            const countText = document.getElementById('selectedCountText');
+
+            if (countText) countText.innerText = count;
+            if (btnDeleteSelected) {
+                btnDeleteSelected.disabled = count === 0;
+            }
+        }
+
+        // Delete Selected Records (다중 선택 삭제)
+        function deleteSelectedRecords() {
+            const checkedBoxes = document.querySelectorAll('.row-checkbox:checked');
+            const selectedIds = Array.from(checkedBoxes).map(cb => cb.value);
+
+            if (selectedIds.length === 0) return;
+
+            showConfirm(
+                '선택 데이터 삭제',
+                `선택한 ${selectedIds.length}건의 데이터를 정말 삭제하시겠습니까?`,
+                function() {
+                    publicDataList = publicDataList.filter(item => !selectedIds.includes(item.id));
+                    saveDataToStorage();
+                    populateDropdownFilters();
+                    applyFilters();
+                    renderStatsCharts();
+                    renderAlertCenter();
+                    showToast(`${selectedIds.length}건의 데이터가 삭제되었습니다.`, 'info');
+                },
+                true
+            );
+        }
+
+        // Delete All Data (전체 데이터 일괄 삭제)
+        function deleteAllData() {
+            if (publicDataList.length === 0) {
+                showToast('삭제할 데이터가 없습니다.', 'warning');
+                return;
+            }
+
+            showConfirm(
+                '전체 데이터 삭제',
+                `현재 등록된 전체 공공데이터 (${publicDataList.length}건)를 모두 삭제하시겠습니까?\n이 작업은 취소할 수 없습니다.`,
+                function() {
+                    publicDataList = [];
+                    saveDataToStorage();
+                    populateDropdownFilters();
+                    applyFilters();
+                    renderStatsCharts();
+                    renderAlertCenter();
+                    showToast('전체 데이터가 성공적으로 일괄 삭제되었습니다.', 'info');
+                },
+                true
+            );
+        }
+
+        function renderStatsCharts() {
+            // Category count map
+            const categoryCounts = {};
+            const statusCounts = { overdue: 0, imminent: 0, normal: 0, manual: 0 };
+            const deptStats = {};
+
+            publicDataList.forEach(item => {
+                // Category
+                const cat = item.category || '기타';
+                categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
+
+                // Status
+                const info = getDDayInfo(item.nextDate, item.usage);
+                statusCounts[info.status] = (statusCounts[info.status] || 0) + 1;
+
+                // Department
+                const dept = item.dept || '미지정';
+                if (!deptStats[dept]) {
+                    deptStats[dept] = { total: 0, normal: 0, imminent: 0, overdue: 0, manual: 0 };
+                }
+                deptStats[dept].total++;
+                deptStats[dept][info.status]++;
+            });
+
+            // Render Category Donut Chart
+            const catCtx = document.getElementById('categoryChart').getContext('2d');
+            if (categoryChartInstance) categoryChartInstance.destroy();
+
+            categoryChartInstance = new Chart(catCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(categoryCounts),
+                    datasets: [{
+                        data: Object.values(categoryCounts),
+                        backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#64748b']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom' }
+                    }
+                }
+            });
+
+            // Render Status Bar Chart
+            const statusCtx = document.getElementById('statusChart').getContext('2d');
+            if (statusChartInstance) statusChartInstance.destroy();
+
+            statusChartInstance = new Chart(statusCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['기한 경과', '10일이내 임박', '정상 관리', '수시/미사용'],
+                    datasets: [{
+                        label: '데이터 건수',
+                        data: [statusCounts.overdue, statusCounts.imminent, statusCounts.normal, statusCounts.manual],
+                        backgroundColor: ['#ef4444', '#f59e0b', '#10b981', '#94a3b8'],
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    }
+                }
+            });
+
+            // Render Dept Stats Table
+            const deptTbody = document.getElementById('deptStatsTableBody');
+            deptTbody.innerHTML = Object.entries(deptStats).map(([dept, st]) => {
+                const actionNeeded = st.overdue + st.imminent;
+                const actionRate = Math.round((actionNeeded / st.total) * 100);
+
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="py-2.5 px-3 font-bold text-slate-800">${escapeHtml(dept)}</td>
+                        <td class="py-2.5 px-3 text-center font-semibold text-slate-700">${st.total}</td>
+                        <td class="py-2.5 px-3 text-center text-emerald-600 font-medium">${st.normal}</td>
+                        <td class="py-2.5 px-3 text-center text-amber-600 font-medium">${st.imminent}</td>
+                        <td class="py-2.5 px-3 text-center text-red-600 font-bold">${st.overdue}</td>
+                        <td class="py-2.5 px-3 text-center text-slate-500">${st.manual}</td>
+                        <td class="py-2.5 px-3 text-center">
+                            <span class="px-2 py-0.5 rounded text-xs font-bold ${actionNeeded > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-600'}">
+                                ${actionRate}% (${actionNeeded}건)
+                            </span>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderAlertCenter() {
+            const alertList = document.getElementById('alertListContainer');
+            
+            // Urgent items (overdue or imminent)
+            const urgentItems = publicDataList.map(item => ({
+                ...item,
+                info: getDDayInfo(item.nextDate, item.usage)
+            })).filter(i => i.info.status === 'overdue' || i.info.status === 'imminent');
+
+            // Sort by urgency
+            urgentItems.sort((a, b) => (a.info.dDay || 0) - (b.info.dDay || 0));
+
+            if (urgentItems.length === 0) {
+                alertList.innerHTML = `
+                    <div class="p-8 text-center bg-emerald-50/50 rounded-xl border border-emerald-100">
+                        <i class="fa-solid fa-circle-check text-emerald-500 text-3xl mb-2"></i>
+                        <h4 class="font-bold text-emerald-800 text-sm">현재 조치가 필요한 긴급/임박 데이터가 없습니다.</h4>
+                        <p class="text-xs text-emerald-600 mt-1">모든 공공데이터가 정상적인 갱신 주기 내에서 관리되고 있습니다.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            alertList.innerHTML = urgentItems.map(item => {
+                const isOverdue = item.info.status === 'overdue';
+                const bgBorderClass = isOverdue ? 'bg-red-50/60 border-red-200' : 'bg-amber-50/60 border-amber-200';
+                const iconClass = isOverdue ? 'fa-triangle-exclamation text-red-600' : 'fa-clock text-amber-600';
+
+                return `
+                    <div class="p-4 rounded-xl border ${bgBorderClass} flex flex-col md:flex-row items-start md:items-center justify-between gap-3 shadow-sm">
+                        <div class="flex items-start space-x-3">
+                            <div class="p-2 rounded-lg bg-white shadow-xs border border-slate-200 text-base">
+                                <i class="fa-solid ${iconClass}"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center space-x-2">
+                                    <span class="inline-block px-2 py-0.5 rounded text-xs font-bold ${isOverdue ? 'bg-red-600 text-white' : 'bg-amber-500 text-white'}">
+                                        ${item.info.label}
+                                    </span>
+                                    <span class="text-xs font-semibold text-slate-500">[${escapeHtml(item.category)}]</span>
+                                    <span class="text-xs font-medium text-slate-600">담당부서: ${escapeHtml(item.dept || '-')}</span>
+                                </div>
+                                <h4 class="text-sm font-bold text-slate-900 mt-1">${escapeHtml(item.name)}</h4>
+                                <div class="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-4">
+                                    <span>이전 갱신일: <strong>${item.lastDate || '-'}</strong></span>
+                                    <span>갱신주기: <strong>${item.cycle}</strong></span>
+                                    <span>차기갱신일: <strong class="${isOverdue ? 'text-red-600' : 'text-amber-700'}">${item.nextDate}</strong></span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center space-x-2 w-full md:w-auto justify-end">
+                            <button onclick="openModal('edit', '${item.id}')" class="px-3 py-1.5 text-xs font-bold bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg shadow-xs transition">
+                                <i class="fa-solid fa-pen mr-1"></i>갱신일 업데이트
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function switchTab(tabName) {
+            const vList = document.getElementById('viewList');
+            const vStats = document.getElementById('viewStats');
+            const vAlerts = document.getElementById('viewAlerts');
+
+            const btnList = document.getElementById('tabBtnList');
+            const btnStats = document.getElementById('tabBtnStats');
+            const btnAlerts = document.getElementById('tabBtnAlerts');
+
+            // Reset buttons styling
+            [btnList, btnStats, btnAlerts].forEach(btn => {
+                btn.className = 'relative px-3 py-2 text-sm font-medium rounded-md text-slate-300 hover:bg-slate-800 hover:text-white flex items-center space-x-2 transition';
+            });
+
+            vList.classList.add('hidden');
+            vStats.classList.add('hidden');
+            vAlerts.classList.add('hidden');
+
+            if (tabName === 'list') {
+                vList.classList.remove('hidden');
+                btnList.className = 'px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white flex items-center space-x-2 transition';
+            } else if (tabName === 'stats') {
+                vStats.classList.remove('hidden');
+                btnStats.className = 'px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white flex items-center space-x-2 transition';
+                renderStatsCharts();
+            } else if (tabName === 'alerts') {
+                vAlerts.classList.remove('hidden');
+                btnAlerts.className = 'relative px-3 py-2 text-sm font-medium rounded-md bg-blue-600 text-white flex items-center space-x-2 transition';
+                renderAlertCenter();
+            }
+        }
+
+        function triggerExcelImport() {
+            document.getElementById('excelFileInput').click();
+        }
+
+        function importExcel(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, { type: 'array' });
+                    const firstSheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[firstSheetName];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+
+                    if (jsonData.length < 2) {
+                        showToast('엑셀 파일에 데이터 행이 존재하지 않습니다.', 'warning');
+                        return;
+                    }
+
+                    // Map headers dynamically
+                    const headers = jsonData[0].map(h => String(h || '').trim());
+                    const catIdx = headers.findIndex(h => h.includes('구분'));
+                    const nameIdx = headers.findIndex(h => h.includes('데이터명'));
+                    const usageIdx = headers.findIndex(h => h.includes('사용여부'));
+                    const lastDateIdx = headers.findIndex(h => h.includes('갱신일자'));
+                    const cycleIdx = headers.findIndex(h => h.includes('갱신주기'));
+                    const deptIdx = headers.findIndex(h => h.includes('담당부서'));
+                    const managerIdx = headers.findIndex(h => h.includes('담당자'));
+                    const remarksIdx = headers.findIndex(h => h.includes('비고'));
+
+                    let importedCount = 0;
+                    const newItems = [];
+
+                    for (let i = 1; i < jsonData.length; i++) {
+                        const row = jsonData[i];
+                        if (!row || row.length === 0) continue;
+
+                        const name = nameIdx !== -1 ? String(row[nameIdx] || '').trim() : '';
+                        if (!name) continue; // Skip empty rows
+
+                        const category = catIdx !== -1 ? String(row[catIdx] || '').trim() : '표준데이터';
+                        const usage = usageIdx !== -1 ? String(row[usageIdx] || '').trim() : '사용';
+                        let lastDate = lastDateIdx !== -1 ? String(row[lastDateIdx] || '').trim() : '';
+                        
+                        // Formatting date if Excel outputs raw serial number or localized string
+                        if (lastDate && !isNaN(lastDate) && Number(lastDate) > 30000) {
+                            const dateObj = XLSX.SSF.parse_date_code(Number(lastDate));
+                            lastDate = `${dateObj.y}-${String(dateObj.m).padStart(2,'0')}-${String(dateObj.d).padStart(2,'0')}`;
+                        } else if (lastDate) {
+                            lastDate = lastDate.replace(/\./g, '-').replace(/\s+/g, '');
+                        }
+
+                        const cycle = cycleIdx !== -1 ? String(row[cycleIdx] || '').trim() : '연간';
+                        const dept = deptIdx !== -1 ? String(row[deptIdx] || '').trim() : '';
+                        const manager = managerIdx !== -1 ? String(row[managerIdx] || '').trim() : '';
+                        const remarks = remarksIdx !== -1 ? String(row[remarksIdx] || '').trim() : '';
+
+                        const nextDate = calculateNextUpdateDate(lastDate, cycle);
+
+                        newItems.push({
+                            id: String(Date.now() + i),
+                            category, name, usage, lastDate, cycle, nextDate, dept, manager, remarks
+                        });
+                        importedCount++;
+                    }
+
+                    if (importedCount > 0) {
+                        publicDataList = [...newItems, ...publicDataList];
+                        saveDataToStorage();
+                        populateDropdownFilters();
+                        applyFilters();
+                        renderStatsCharts();
+                        renderAlertCenter();
+                        showToast(`엑셀 파일에서 ${importedCount}건의 데이터를 성공적으로 업로드했습니다.`, 'success');
+                    } else {
+                        showToast('가져올 수 있는 유효한 데이터가 없습니다.', 'warning');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    showToast('엑셀 파일 분석 중 오류가 발생했습니다.', 'error');
+                }
+                // Reset file input
+                event.target.value = '';
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Export to Excel / CSV
+        function exportToExcel() {
+            if (publicDataList.length === 0) {
+                showToast('다운로드할 데이터가 없습니다.', 'warning');
+                return;
+            }
+
+            const exportRows = publicDataList.map(item => {
+                const info = getDDayInfo(item.nextDate, item.usage);
+                return {
+                    '구분': item.category || '',
+                    '데이터명': item.name || '',
+                    '사용여부': item.usage || '',
+                    '갱신일자': item.lastDate || '',
+                    '갱신주기': item.cycle || '',
+                    '차기갱신일': item.nextDate || '',
+                    '갱신상태': info.label,
+                    '담당부서': item.dept || '',
+                    '담당자': item.manager || '',
+                    '비고': item.remarks || ''
+                };
+            });
+
+            const worksheet = XLSX.utils.json_to_sheet(exportRows);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, "공공데이터 갱신목록");
+
+            const filename = `공공데이터_갱신관일리스트_${getTodayString()}.xlsx`;
+            XLSX.writeFile(workbook, filename);
+            showToast('엑셀 파일 다운로드가 시작되었습니다.', 'success');
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toastMessage');
+            const toastIcon = document.getElementById('toastIcon');
+
+            toastMsg.innerText = message;
+
+            if (type === 'success') {
+                toastIcon.className = 'fa-solid fa-circle-check text-emerald-400 text-lg';
+            } else if (type === 'warning') {
+                toastIcon.className = 'fa-solid fa-triangle-exclamation text-amber-400 text-lg';
+            } else if (type === 'error') {
+                toastIcon.className = 'fa-solid fa-circle-xmark text-red-400 text-lg';
+            } else {
+                toastIcon.className = 'fa-solid fa-circle-info text-blue-400 text-lg';
+            }
+
+            toast.classList.remove('hidden', 'translate-y-2');
+            setTimeout(() => {
+                toast.classList.add('hidden', 'translate-y-2');
+            }, 3000);
+        }
+
+        // Helper: Escape HTML string
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        // Initialize App on Window Load
+        window.onload = function() {
+            initApp();
+        };
+    </script>
+</body>
+</html>
